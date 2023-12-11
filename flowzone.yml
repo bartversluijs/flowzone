@@ -54,26 +54,6 @@
       echo "version=${version}" >> $GITHUB_OUTPUT
       echo "version_tag=${version_tag}" >> $GITHUB_OUTPUT
 
-  - &deployToBalenaAction
-    uses: balena-io/deploy-to-balena-action@e2e865ed0b38dd19f8e25a967d2be28ef0a5305a # v1.1.9
-    id: balena_deploy
-    with:
-      balena_token: ${{ secrets.BALENA_API_KEY || secrets.BALENA_API_KEY_PUSH }}
-      environment: ${{ inputs.balena_environment }}
-      fleet: ${{ matrix.slug }}
-      source: ${{ inputs.working_directory }}
-      registry_secrets: |
-        {
-          "ghcr.io": {
-            "username": "${{ github.actor }}",
-            "password": "${{ secrets.GITHUB_TOKEN }}"
-          },
-          "docker.io": {
-            "username": "${{ secrets.DOCKERHUB_USER }}",
-            "password": "${{ secrets.DOCKERHUB_TOKEN }}"
-          }
-        }
-
   - &getReleaseNotes
     name: Generate release notes
     id: release_notes
@@ -85,26 +65,6 @@
       release_notes_file="$(mktemp)"
       git log ${previous_tag}..${{ github.event.pull_request.head.sha || github.event.head_commit.id }} --pretty=reference > "${release_notes_file}"
       echo "file=${release_notes_file}" >> $GITHUB_OUTPUT
-
-  # FIXME: https://github.com/balena-io/deploy-to-balena-action/issues/194
-  - &updateBalenaReleaseNotes
-    name: Update balena release notes
-    run: |
-      set -ea
-      release_notes="$(cat < '${{ steps.release_notes.outputs.file }}' | jq -R -s .)"
-      app_id="$(curl --silent --retry 3 --fail \
-        "https://api.${{ inputs.balena_environment }}/v6/application?\$filter=slug%20eq%20%27${{ matrix.slug }}%27&\$select=id" \
-        -H 'Content-Type: application/json' \
-        -H 'Authorization: Bearer ${{ secrets.BALENA_API_KEY || secrets.BALENA_API_KEY_PUSH }}' \
-        | jq -r '.d[].id')"
-      release_id='${{ steps.balena_deploy.outputs.release_id }}'
-      if [[ -n $release_notes ]] && [[ -n $app_id ]] && [[ -n $release_id ]]; then
-          curl --silent --retry 3 --fail \
-            -X PATCH "https://api.${{ inputs.balena_environment }}/v6/release?\$filter=belongs_to__application%20eq%20${app_id}%20and%20id%20eq%20${release_id}" \
-            -H 'Content-Type: application/json' \
-            -H 'Authorization: Bearer ${{ secrets.BALENA_API_KEY || secrets.BALENA_API_KEY_PUSH }}' \
-            -d "{\"note\":${release_notes}}"
-      fi
 
   - &checkoutMergeRef
     # https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#pull_request
@@ -715,12 +675,6 @@ on:
       DOCKER_REGISTRY_PASS:
         description: "Deprecated, use DOCKERHUB_TOKEN instead"
         required: false
-      BALENA_API_KEY:
-        description: "API key for pushing releases to balena applications"
-        required: false
-      BALENA_API_KEY_PUSH:
-        description: "Deprecated, use BALENA_API_KEY instead"
-        required: false
       CARGO_REGISTRY_TOKEN:
         description: "A personal access token to publish to a cargo registry"
         required: false
@@ -812,17 +766,17 @@ on:
         description: "GitHub App id to impersonate"
         type: string
         required: false
-        # https://github.com/organizations/product-os/settings/apps/flowzone-app
-        # https://github.com/organizations/product-os/settings/variables/actions/APP_ID
-        default: "${{ vars.APP_ID || '291899' }}"
+        # https://github.com/organizations/nexelit/settings/apps/nexelit-flowzone-app
+        # https://github.com/organizations/nexelit/settings/variables/actions/APP_ID
+        default: "${{ vars.APP_ID || '693667' }}"
       # not needed if installed on this current org/repo
       installation_id:
         description: "GitHub App installation id"
         type: string
         required: false
-        # https://github.com/organizations/product-os/settings/installations
-        # https://github.com/organizations/product-os/settings/variables/actions/INSTALLATION_ID
-        default: "${{ vars.INSTALLATION_ID || '34040165' }}"
+        # https://github.com/organizations/nexelit/settings/installations
+        # https://github.com/organizations/nexelit/settings/variables/actions/INSTALLATION_ID
+        default: "${{ vars.INSTALLATION_ID || '45006667' }}"
       token_scope:
         description: "Ephemeral token scope(s)"
         type: string
@@ -868,16 +822,6 @@ on:
         type: boolean
         required: false
         default: false
-      balena_environment:
-        description: "balenaCloud environment"
-        type: string
-        required: false
-        default: balena-cloud.com
-      balena_slugs:
-        description: "Comma-delimited string of balenaCloud apps, fleets, or blocks to deploy (skipped if empty)"
-        type: string
-        required: false
-        default: ""
       cargo_targets:
         description: "Comma-delimited string of Rust stable targets to publish (skipped if empty)"
         type: string
@@ -1202,8 +1146,7 @@ jobs:
       - name: Install versionist
         if: inputs.disable_versioning != true
         run: |
-          npm install -g balena-versionist@~0.14.13 versionist@^7.0.3
-          npm ls -g balena-versionist
+          npm install -g versionist@^7.0.3
           npm ls -g versionist
 
       - name: Generate changelog
@@ -1216,7 +1159,7 @@ jobs:
             $(npm root -g)/versionist/scripts/generate-changelog.sh .
           fi
 
-      # run balena-versionist
+      # run versionist
       # print the error if anything fails
       # fail the workflow if the error is anything other than "No such file or directory"
       - name: Run versionist
@@ -1225,7 +1168,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.gh_app_token.outputs.token || secrets.FLOWZONE_TOKEN }}
         run: |
-          out="$(balena-versionist 2>&1)"
+          out="$(versionist 2>&1)"
           error="$(awk '/Error:/{getline; print}' <<< "${out}")"
 
           case ${error} in
@@ -1719,41 +1662,6 @@ jobs:
           if test -f "Cargo.toml"
           then
             echo "found Cargo.toml"
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
-
-  # check for balena.yml in source
-  is_balena:
-    name: Is balena
-    runs-on: ${{ fromJSON(inputs.runs_on) }}
-    timeout-minutes: ${{ fromJSON(inputs.jobs_timeout_minutes) }}
-    needs:
-      - versioned_source
-    if: inputs.balena_slugs != ''
-
-    <<: *customWorkingDirectory
-
-    outputs:
-      balena_slugs: ${{ steps.balena_slugs.outputs.build }}
-      balena_yml: ${{ steps.balena_yml.outputs.enabled }}
-
-    steps:
-      - *getGitHubAppToken
-      - *checkoutVersionedSha
-
-      - id: balena_slugs
-        <<: *jsonArrayBuilder
-        env:
-          INPUT: ${{ inputs.balena_slugs }}
-
-      - name: Check for balena.yml
-        id: balena_yml
-        run: |
-          if test -f balena.yml
-          then
-            echo "found balena.yml"
             echo "enabled=true" >> $GITHUB_OUTPUT
           else
             echo "enabled=false" >> $GITHUB_OUTPUT
@@ -2573,67 +2481,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKER_REGISTRY_PASS }}
           repository: ${{ steps.strings.outputs.dockerhub }}
           readme-filepath: ./README.md
-
-  ###################################################
-  ## balena
-  ###################################################
-
-  balena_publish:
-    name: Publish balena
-    runs-on: ${{ fromJSON(inputs.runs_on) }}
-    timeout-minutes: ${{ fromJSON(inputs.jobs_timeout_minutes) }}
-    needs:
-      - is_balena
-      - npm_test
-      - custom_test
-      - docker_test
-      - cargo_test
-      - python_test
-      - versioned_source
-    # allow some dependencies to be skipped
-    if: |
-      !failure() && !cancelled() &&
-      needs.is_balena.result == 'success' &&
-      github.event.pull_request.state == 'open'
-
-    strategy:
-      fail-fast: false
-      matrix:
-        slug: ${{ fromJSON(needs.is_balena.outputs.balena_slugs) }}
-
-    <<: *customWorkingDirectory
-
-    steps:
-      - *getGitHubAppToken
-      - *checkoutVersionedSha
-      - *createLocalRefs
-      - *deployToBalenaAction
-      - *getReleaseNotes
-      - *updateBalenaReleaseNotes
-
-  balena_finalize:
-    name: Finalize balena
-    runs-on: ${{ fromJSON(inputs.runs_on) }}
-    timeout-minutes: ${{ fromJSON(inputs.jobs_timeout_minutes) }}
-    needs:
-      - is_balena
-      - versioned_source
-    if: |
-      github.event.pull_request.merged == true || github.event_name == 'push'
-
-    strategy:
-      fail-fast: false
-      matrix:
-        slug: ${{ fromJSON(needs.is_balena.outputs.balena_slugs) }}
-
-    <<: *customWorkingDirectory
-
-    steps:
-      - *getGitHubAppToken
-      - *checkoutVersionedSha
-      - *deployToBalenaAction
-      - *getReleaseNotes
-      - *updateBalenaReleaseNotes
 
   ###################################################
   ## Python
@@ -3990,13 +3837,11 @@ jobs:
       - is_docker
       - is_python
       - is_cargo
-      - is_balena
       - is_custom
       - is_website
       - all_tests
       - npm_publish
       - docker_publish
-      - balena_publish
       - python_publish
       - website_publish
       - github_publish
