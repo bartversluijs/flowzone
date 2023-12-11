@@ -16,7 +16,6 @@ Reusable, opinionated, zero-conf workflows for GitHub actions
 - [Supported project types](#supported-project-types)
   - [npm](#npm)
   - [Docker](#docker)
-  - [balena](#balena)
   - [Python (with Poetry)](#python-with-poetry)
   - [Rust](#rust)
   - [GitHub](#github)
@@ -32,7 +31,7 @@ Reusable, opinionated, zero-conf workflows for GitHub actions
 Open a PR with the following changes to test and enable Flowzone:
 
 1. Create `.github/workflows/flowzone.yml` (see [Usage](#usage)) in a new Draft Pull Request to avoid changing branch protection rules.
-2. Ensure your `package.json`, `docker-compose.test.yml`, `balena.yml`, etc. contain correct information and all tests are passing.
+2. Ensure your `package.json`, `docker-compose.test.yml`, etc. contain correct information and all tests are passing.
 3. Mark the Pull Request as Ready for Review and re-run the checks via the Checks or Actions panel. New branch protection rules will be applied and this requires admin access to revert!
 4. Seek approval or self-certify!
 
@@ -103,14 +102,6 @@ jobs:
       # Deprecated, use DOCKERHUB_TOKEN instead
       # Required: false
       DOCKER_REGISTRY_PASS:
-
-      # API key for pushing releases to balena applications
-      # Required: false
-      BALENA_API_KEY:
-
-      # Deprecated, use BALENA_API_KEY instead
-      # Required: false
-      BALENA_API_KEY_PUSH:
 
       # A personal access token to publish to a cargo registry
       # Required: false
@@ -254,16 +245,6 @@ jobs:
       # Type: boolean
       # Required: false
       docker_publish_platform_tags: false
-
-      # balenaCloud environment
-      # Type: string
-      # Required: false
-      balena_environment: balena-cloud.com
-
-      # Comma-delimited string of balenaCloud apps, fleets, or blocks to deploy (skipped if empty)
-      # Type: string
-      # Required: false
-      balena_slugs: 
 
       # Comma-delimited string of Rust stable targets to publish (skipped if empty)
       # Type: string
@@ -572,19 +553,6 @@ All targets except `default` will have the target name prefixed to the tags - eg
 
 An example of multiple bake targets can be found here: <https://github.com/balena-io-modules/open-balena-base/blob/master/docker-bake.hcl>
 
-### balena
-
-If a `balena.yml` file is found in the root of the repository Flowzone will attempt to push draft releases to your fleet's slug(s) and finalize on merge.
-
-This will **require** either your organization or your repository to have a balenaCloud API key set as a secret named `BALENA_API_KEY`. If you intend to set the secret at the org level then make sure that the API key is valid for all repositories in that organization. A repository-level secret will override an organization-level secret. This API key will be used to login into balena-cli and push draft releases to your fleet in balenaCloud.
-
-To disable publishing of releases to balenaCloud set `balena_slugs` to `""`.
-
-Examples:
-
-1. Start with something simple, [balena-python-hello-world](https://github.com/balena-io-examples/balena-python-hello-world/blob/master/.github/workflows/flowzone.yml)
-2. Push to multiple fleets, check out [balena-supervisor](https://github.com/balena-os/balena-supervisor/blob/master/.github/workflows/flowzone.yml).
-
 ### Python (with Poetry)
 
 Python tests will be run if a `pyproject.toml` file is found in the root of the repository and Poetry is used as a package manager.
@@ -647,9 +615,7 @@ More interfaces may be added in the future. Open an issue if you have a use case
 
 ### Versioning
 
-As long as versioning is not explicitly disabled via `disable_versioning` then Flowzone will attempt run [balena-versionist](https://github.com/product-os/balena-versionist) directly on the PR's source.
-
-If you have [VersionBot3](https://github.com/apps/versionbot3) installed it will be ignored as far as versioning is concerned, so no need to disable it.
+As long as versioning is not explicitly disabled via `disable_versioning` then Flowzone will attempt run [versionist](https://github.com/product-os/versionist) directly on the PR's source.
 
 ### Docs
 
